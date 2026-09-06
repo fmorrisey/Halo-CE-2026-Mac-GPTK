@@ -71,6 +71,8 @@ git config core.hooksPath .githooks
 
 ## License
 
-MIT for the scripts and docs — see [LICENSE](LICENSE). This does not extend
-to Apple's Game Porting Toolkit or D3DMetal, which are never distributed
-here.
+MIT for the scripts and docs — see [LICENSE](LICENSE).
+
+See [NOTICE](NOTICE) for important limitations regarding Apple software. In
+short: the MIT license covers only what is authored here, and no Apple Game
+Porting Toolkit binary is distributed in this repository.

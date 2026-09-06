@@ -1,0 +1,62 @@
+Halo-CE-2026-Mac-GPTK
+Copyright (c) 2026 Forrest Morrisey
+
+This product is licensed under the MIT License. See LICENSE for the full text.
+
+================================================================================
+IMPORTANT LIMITATIONS REGARDING APPLE SOFTWARE
+================================================================================
+
+The MIT License in this repository covers ONLY the shell scripts and
+documentation authored here. It does NOT extend to any Apple software.
+
+NOT COVERED, AND NOT DISTRIBUTED HERE
+
+    D3DMetal.framework
+    libd3dshared.dylib
+    libmetalirconverter.dylib
+    libdxcompiler.dylib
+    libdxccontainer.dylib
+    libdxilconv.dylib
+    d3d11.dll / d3d12.dll / dxgi.dll / nvapi64.dll / nvngx-on-metalfx.dll
+      (the PE-side forwarders shipped in the GPTK redist)
+    any other component of Apple's Game Porting Toolkit
+
+These remain the property of Apple Inc. and are governed solely by Apple's own
+license terms. Apple's licensing does not permit redistributing them, so no
+Apple binary appears in this repository and none may be added.
+
+HOW THE SCRIPTS OBTAIN THEM
+
+The scripts here operate on a Game Porting Toolkit redist that YOU download
+from Apple yourself, using your own Apple Developer account, and mount
+locally. Nothing is fetched, bundled, vendored, or mirrored by this project.
+The scripts read from the volume you mount and write into a wrapper you
+already own.
+
+You are responsible for complying with Apple's license terms for the Game
+Porting Toolkit, including any restrictions on its use and redistribution.
+
+ENFORCEMENT
+
+This boundary is enforced mechanically, not merely by convention:
+
+    .gitignore                   denies binary and archive patterns
+    scripts/check-no-binaries.sh inspects the git index by filename,
+                                 file size, and magic bytes
+    .githooks/pre-commit         runs the above on every commit
+
+Enable the hook after cloning:
+
+    git config core.hooksPath .githooks
+
+OTHER THIRD-PARTY SOFTWARE REFERENCED
+
+This project also describes behavior of, but does not distribute:
+
+    Wine / Wineskin / Porting Kit   (their respective licenses)
+    MoltenVK                        (Apache License 2.0)
+    GStreamer                       (LGPL)
+    Unreal Engine                   (Epic Games EULA)
+
+No source or binary from any of the above is included here.

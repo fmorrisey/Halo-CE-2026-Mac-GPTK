@@ -19,13 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-NOTE ON APPLE SOFTWARE
-
-This license covers only the scripts and documentation in this repository.
-It does NOT cover Apple's Game Porting Toolkit, D3DMetal.framework,
-libd3dshared.dylib, or any other Apple-provided binary. Those remain subject
-to Apple's own license terms and are NOT distributed in this repository.
-Users must obtain them directly from Apple.

@@ -357,6 +357,6 @@ own with `backup-wrapper.sh`.
 
 Scripts and documentation here: MIT (see [LICENSE](../LICENSE)).
 
-This does **not** extend to Apple's Game Porting Toolkit, D3DMetal, or any
-Apple binary. Those remain under Apple's license and are never distributed
-here.
+See [NOTICE](../NOTICE) for important limitations regarding Apple software:
+the MIT license covers only what is authored here, and no Game Porting
+Toolkit binary is distributed in this repository.
