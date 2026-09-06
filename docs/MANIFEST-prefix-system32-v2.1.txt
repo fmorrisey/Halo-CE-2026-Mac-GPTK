@@ -1,0 +1,28 @@
+# Manifest: pristine prefix D3D DLLs (drive_c/windows/{system32,syswow64})
+#
+# Source archive : halo-prefix-system32-d3d-v2.1-backup.tar.gz
+# Captured       : 2026-09-05, before the GPTK 4.0b2 overlay
+#
+# These are the prefix's own copies of the D3D DLLs. They were found to
+# be byte-identical to the wrapper's builtin copies and are bypassed at
+# runtime by WINEDLLOVERRIDES=...=b, but were captured so a rollback is
+# total. Binaries not included — see note above.
+#
+# Entries: 16
+# ---------------------------------------------------------------------
+SharedSupport/prefix/drive_c/windows/system32/d3d10_1.dll
+SharedSupport/prefix/drive_c/windows/system32/d3d10.dll
+SharedSupport/prefix/drive_c/windows/system32/d3d10core.dll
+SharedSupport/prefix/drive_c/windows/system32/d3d11.dll
+SharedSupport/prefix/drive_c/windows/system32/d3d12.dll
+SharedSupport/prefix/drive_c/windows/system32/d3d9.dll
+SharedSupport/prefix/drive_c/windows/system32/dxgi.dll
+SharedSupport/prefix/drive_c/windows/system32/winemetal.dll
+SharedSupport/prefix/drive_c/windows/syswow64/d3d10_1.dll
+SharedSupport/prefix/drive_c/windows/syswow64/d3d10.dll
+SharedSupport/prefix/drive_c/windows/syswow64/d3d10core.dll
+SharedSupport/prefix/drive_c/windows/syswow64/d3d11.dll
+SharedSupport/prefix/drive_c/windows/syswow64/d3d12.dll
+SharedSupport/prefix/drive_c/windows/syswow64/d3d9.dll
+SharedSupport/prefix/drive_c/windows/syswow64/dxgi.dll
+SharedSupport/prefix/drive_c/windows/syswow64/winemetal.dll

@@ -1,0 +1,49 @@
+# ==========================================================================
+# HARD RULE: no Apple binaries in this repo, ever.
+#
+# Apple's Game Porting Toolkit license does not permit redistributing
+# D3DMetal or any part of the GPTK redist. This repository ships scripts
+# and documentation that operate on files the USER obtains from Apple
+# directly. Anything matching the patterns below is assumed to be such a
+# binary (or a backup containing one) and is never committed.
+#
+# Enforced mechanically by scripts/check-no-binaries.sh, wired up as a
+# pre-commit hook via:  git config core.hooksPath .githooks
+# ==========================================================================
+
+# --- Apple / GPTK binaries and anything that could embed them ---
+*.dylib
+*.framework
+*.framework/
+*.dll
+*.so
+*.metallib
+D3DMetal*
+libd3dshared*
+
+# --- Archives (our backup tarballs contain the above verbatim) ---
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.dmg
+*.7z
+
+# --- Large diagnostic captures (sample output runs to tens of MB) ---
+*-sample.txt
+*.sample.txt
+*.dmp
+UEMinidump*
+
+# --- macOS cruft ---
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# --- editor / local ---
+.vscode/
+.idea/
+*.swp
+*~
+local.env

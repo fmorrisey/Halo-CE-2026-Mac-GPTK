@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Pre-commit hook: block Apple binaries from entering the repo.
+# Enable with:  git config core.hooksPath .githooks
+exec "$(git rev-parse --show-toplevel)/scripts/check-no-binaries.sh"
