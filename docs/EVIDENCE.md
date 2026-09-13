@@ -207,6 +207,109 @@ D3DMetal. Current workaround is renaming the `.mp4` files out of the way
 
 ---
 
+## 5. Audio: radio/comms VO (open)
+
+Captured 2026-09-13. **Incomplete** — testing paused because the 5.1 rig was
+packed up before the discriminating tests could be run. Recorded so it can be
+resumed cold.
+
+### Symptom
+
+5.1 output works. Music, weapons, ambience and in-world dialogue all play.
+**Radio/comms VO — Cortana, Foehammer — is silent.** Mix quality subjectively
+mediocre, which may share a root cause rather than being separate.
+
+### Output device at time of observation
+
+```
+SAMSUNG (HDMI)          Output Channels: 6   48000 Hz   ← default output
+MacBook Pro Speakers    Output Channels: 2
+MacBook Pro Microphone  (input)
+```
+
+### Wine audio configuration
+
+Driver is CoreAudio, from `user.reg`:
+
+```
+[Software\\Wine\\Drivers\\winecoreaudio.drv]
+"DefaultOutput"="{0.0.0.00000000}.{F278AF1F-3FFA-4F1E-A815-751689B1198A}"
+[Software\\Wine\\Drivers\\winecoreaudio.drv\\devices\\0,BuiltInSpeakerDevice]
+[Software\\Wine\\Drivers\\winecoreaudio.drv\\devices\\1,BuiltInMicrophoneDevice]
+```
+
+`x86_64-unix/winecoreaudio.so` is present. No `xaudio2` DLL overrides were
+found in the registry.
+
+### The XAudio2 stack is half native
+
+The prefix has **native Microsoft XAudio2 installed over Wine's builtin**,
+dated Sep 5 00:14 — consistent with a `winetricks xact` run (Winetricks.log
+is dated Sep 4 23:48). Sizes differ markedly from the Oct 27 2025 builtins —
+larger for `xaudio2`/`xapofx`, smaller for `x3daudio`:
+
+| DLL | prefix (native) | builtin (Wine) |
+|---|---:|---:|
+| `xaudio2_7.dll` | 518,488 | 290,816 |
+| `xaudio2_0.dll` | 489,480 | 286,720 |
+| `xapofx1_5.dll` | 77,656 | 69,632 |
+| `x3daudio1_7.dll` | 24,920 | 49,152 |
+
+Native `xaudio2_0`–`_7`, all `xapofx1_*`, and all `x3daudio1_*` are present.
+
+**`xaudio2_8.dll` and `xaudio2_9.dll` were left builtin** (307,200 bytes,
+Sep 4 23:43 — matching the Wine tree). UE5 targets XAudio2 2.9, and
+`FAudio_AudioClientThread` appears in the hang sample, so **the game is
+running on Wine's FAudio-backed path, not the native DLLs.**
+
+This is probably irrelevant if the cause turns out to be the centre channel.
+It becomes directly relevant if the cause is the effect chain: a half-native
+XAudio2 stack is exactly where effect creation breaks, and UE5's audio mixer
+does its own DSP in software while using XAudio2 as an output sink — so which
+layer owns the radio effect is itself a question to answer.
+
+### Two hypotheses, not yet discriminated
+
+**A — centre channel (leading).** Radio comms VO is non-diegetic and in 5.1
+is conventionally hard-routed to centre. Everything else occupies
+L/R/surrounds and is unaffected. Explains both the missing VO and the
+off-sounding mix with one cause. **If true, this is not a graft defect** —
+it is a macOS/HDMI/display routing problem that would reproduce on any 5.1
+title.
+
+**B — DSP/effect chain.** Radio voice effects are band-pass plus distortion.
+A failing effect chain outputs silence rather than dry audio, which would
+also match "only these lines are missing".
+
+### How to discriminate
+
+The Audio MIDI Setup per-speaker test (Configure Speakers → 5.1 → click each
+speaker) settles A without launching the game: a silent **Centre** with the
+other five sounding confirms the fault is outside the wrapper entirely. If
+all six sound, switching to a 2-channel device and relaunching separates
+channel mapping (VO returns) from DSP (VO still missing). Full protocol in
+[README.md](README.md).
+
+### Baseline for a future sample
+
+The hang sample captured the audio threads **parked normally**, giving a
+clean comparison point:
+
+```
+FAudio_AudioClientThread        blocked (wine syscall)
+AudioMixerRenderThread(1)       blocked
+AudioMixerNullCallbackThread    blocked
+audio_client_timer              NtDelayExecution (winecoreaudio.so)
+com.apple.audio.IOThread.client idle
+```
+
+`AudioMixerNullCallbackThread` existing at all is worth noting: it indicates
+UE had a **null audio device** in play at some point. If audio is ever
+missing wholesale rather than selectively, that thread being *active* is the
+first thing to check — it would suggest the mixer never bound to CoreAudio.
+
+---
+
 ## Method notes
 
 - **Crash contexts beat the Metal HUD.** `RHI.AdapterName` and friends are

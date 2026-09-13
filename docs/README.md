@@ -304,9 +304,82 @@ Expected for a DX12 title: altering settings invalidates the pipeline-state-
 object cache and the engine rebuilds it. Long stall, not a hang. Let it
 finish; it is much shorter the second time.
 
-### 3. Audio — not yet characterised
+### 3. Radio/comms voice lines are silent in 5.1 (open, testing paused)
 
-Not investigated. TBD.
+**Audio broadly works.** 5.1 output is functional and everything plays —
+music, weapons, ambience, in-world dialogue — with one exception and one
+caveat:
+
+- **Radio/comms VO is silent.** Cortana, Foehammer, and other over-the-radio
+  dialogue produce no sound. Every other audio category is fine.
+- **The mix quality is mediocre**, subjectively — worth noting because it may
+  be the same root cause rather than a separate complaint.
+
+Observed on: 5.1 over HDMI to a Samsung display, 6 output channels, 48 kHz.
+
+#### Leading hypothesis: the centre channel
+
+Radio comms VO is non-diegetic dialogue, and in a 5.1 mix that is almost
+always hard-routed to the **centre channel**. Everything else in the game is
+spread across L/R/surrounds and would be unaffected. "All audio works except
+radio voices" plus a mix that sounds subtly wrong is the signature of a
+centre channel that is not arriving.
+
+If that is what this is, **it is not a defect in the graft at all** — it
+would be a macOS→HDMI→display channel-routing problem, and would reproduce
+with any 5.1 title.
+
+The competing hypothesis is a DSP/effect-chain failure: radio voices are
+typically a band-pass-plus-distortion effect, and a failing effect chain
+outputs silence rather than dry audio.
+
+#### Test protocol — resume here
+
+Run in order; step 1 is decisive and takes about thirty seconds.
+
+**1. Does the centre channel work at all, outside the game?**
+
+Audio MIDI Setup → select the 5.1 device → *Configure Speakers* → 5.1 →
+click each speaker in turn.
+
+- **Centre silent, others fine** → confirmed: the fault is in the
+  macOS/HDMI/display path, entirely outside this wrapper. Investigation ends
+  here as far as this project is concerned. Likely causes: the display
+  downmixing 5.1→2.0 internally and dropping centre, or no centre output
+  assigned in the speaker configuration.
+- **All six speakers sound** → the hardware path is fine; continue to step 2.
+
+**2. Does it still happen in stereo?**
+
+Switch macOS output to a 2-channel device, relaunch, and listen for a radio
+line.
+
+- **Radio VO returns** → channel mapping in `winecoreaudio`. A Wine-side bug,
+  not a D3DMetal one.
+- **Radio VO still silent** → not channel routing. It is the effect chain;
+  continue to step 3.
+
+**3. Sample during a radio line.**
+
+```bash
+PID=$(pgrep -f HaloCampaignEvolved | head -1)
+sample "$PID" 10 -f ~/Desktop/halo-audio-sample.txt
+```
+
+Threads of interest: `FAudio_AudioClientThread`, `AudioMixerRenderThread`,
+`AudioMixerNullCallbackThread`, `audio_client_timer`,
+`com.apple.audio.IOThread.client`, and `winecoreaudio.so`. The hang sample in
+[EVIDENCE.md](EVIDENCE.md) captured all of these **parked normally**, so
+there is a clean baseline to diff against.
+
+#### Status
+
+**Paused 2026-09-13** — the 5.1 rig has been packed up; resume when it is set
+back up. Nothing in the wrapper needs to change in the meantime, and no
+workaround is applied for this issue.
+
+See [EVIDENCE.md](EVIDENCE.md#5-audio-radiocomms-vo-open) for the audio-stack
+configuration findings.
 
 ---
 
