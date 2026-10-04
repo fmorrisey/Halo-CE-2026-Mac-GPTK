@@ -286,10 +286,50 @@ idle, waiting on a media pipeline that never finishes. Full analysis in
 [EVIDENCE.md](EVIDENCE.md).
 
 **Retested 2026-10-03** — nearly a month later, with D3DMetal 4.0b2 in place
-and the game otherwise stable: re-enabling the movies reproduced the hang
-immediately. It froze during the opening logo parade, before reaching the
-main menu. No crash dump was produced, confirming a hang rather than a crash.
-Movies were disabled again and play resumed normally. **Still open.**
+and the game otherwise stable (zero crashes in three weeks of play):
+re-enabling the movies reproduced the hang immediately, and a fresh sample
+matches the original to the decimal.
+
+| | 2026-09-05 | 2026-10-03 |
+|---|---|---|
+| Threads | 140 | 142 |
+| Running | **1.9%** | **1.9%** |
+| Blocked | **98.1%** | **98.1%** |
+| CPU | ~180% | 178.6% |
+| RSS | 3.6 GB | 3.7 GB |
+| `MTLCompiler`/`AGXMetal`/`GPUCompiler` frames | 0 | 0 |
+| `vtdechw2:src` | spinning | spinning |
+
+**It hangs at the main-menu background video, not the logo parade.** The
+earlier note here said logo parade; the tell is audio — the main theme plays
+while the screen stays black, so the engine reached main-menu load and wedged
+on `MainMenu_Background/`. No crash dump is written, confirming a hang.
+
+**Why no UI appears.** This is not a rendering failure. UE's movie player
+blocks the **game thread** until the movie reports frames or end-of-stream.
+That thread is parked, so the menu widgets are never constructed; the render
+thread has nothing to draw. Audio continues because the mixer runs on
+independent threads from already-loaded assets — hence music over a black
+screen. D3DMetal is idle and healthy throughout, contributing 6 frames to the
+entire call graph, its command-queue workers waiting on submissions that
+never arrive.
+
+The media cluster shows one spinning thread and total paralysis everywhere
+else:
+
+```
+SPINNING   2246/2246  vtdechw2:src                    (gst_vtdec_output_loop)
+blocked       0/2246  ElectraPlayer::Video decoder
+blocked       0/2246  ElectraPlayer::EventDispatch
+blocked       0/2246  Electra::ExecAsync
+blocked       0/2246  ElectraHTTPStream
+blocked       4/2246  ElectraPlayer::MP4 streamer
+blocked       3/2246  FMediaTicker                    (NtDelayExecution)
+```
+
+The decoder spins, nothing reaches Electra, Electra never signals the engine,
+the engine waits forever. Movies were disabled again and play resumed
+normally. **Still open, and unchanged in a month.**
 
 Manage it with:
 
