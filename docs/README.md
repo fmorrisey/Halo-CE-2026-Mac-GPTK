@@ -285,6 +285,12 @@ Zero `MTLCompiler` / `AGXMetal` / `GPUCompiler` frames anywhere — so this is
 idle, waiting on a media pipeline that never finishes. Full analysis in
 [EVIDENCE.md](EVIDENCE.md).
 
+**Retested 2026-10-03** — nearly a month later, with D3DMetal 4.0b2 in place
+and the game otherwise stable: re-enabling the movies reproduced the hang
+immediately. It froze during the opening logo parade, before reaching the
+main menu. No crash dump was produced, confirming a hang rather than a crash.
+Movies were disabled again and play resumed normally. **Still open.**
+
 Manage it with:
 
 ```bash
