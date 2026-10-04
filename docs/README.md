@@ -304,82 +304,73 @@ Expected for a DX12 title: altering settings invalidates the pipeline-state-
 object cache and the engine rebuilds it. Long stall, not a hang. Let it
 finish; it is much shorter the second time.
 
-### 3. Radio/comms voice lines are silent in 5.1 (open, testing paused)
+### 3. 5.1 channel mapping is wrong and unstable (external — not a graft issue)
 
-**Audio broadly works.** 5.1 output is functional and everything plays —
-music, weapons, ambience, in-world dialogue — with one exception and one
-caveat:
+**Closed as external 2026-10-03.** Documented because the symptom points
+convincingly at the game and is not the game.
 
-- **Radio/comms VO is silent.** Cortana, Foehammer, and other over-the-radio
-  dialogue produce no sound. Every other audio category is fine.
-- **The mix quality is mediocre**, subjectively — worth noting because it may
-  be the same root cause rather than a separate complaint.
+**Symptom, as first observed.** 5.1 output worked and almost everything
+played — music, weapons, ambience, in-person dialogue — but **radio/comms VO
+(Cortana, Foehammer) was silent**, and the mix sounded subtly off. After
+reconfiguring the AV chain the voices returned but arrived from the **wrong
+speaker** (centre dialogue emerging from the left surround).
 
-Observed on: 5.1 over HDMI to a Samsung display, 6 output channels, 48 kHz.
+**Cause: the AV chain negotiates an inconsistent 5.1 channel order.** The
+signal path is
 
-#### Leading hypothesis: the centre channel
-
-Radio comms VO is non-diegetic dialogue, and in a 5.1 mix that is almost
-always hard-routed to the **centre channel**. Everything else in the game is
-spread across L/R/surrounds and would be unaffected. "All audio works except
-radio voices" plus a mix that sounds subtly wrong is the signature of a
-centre channel that is not arriving.
-
-If that is what this is, **it is not a defect in the graft at all** — it
-would be a macOS→HDMI→display channel-routing problem, and would reproduce
-with any 5.1 title.
-
-The competing hypothesis is a DSP/effect-chain failure: radio voices are
-typically a band-pass-plus-distortion effect, and a failing effect chain
-outputs silence rather than dry audio.
-
-#### Test protocol — resume here
-
-Run in order; step 1 is decisive and takes about thirty seconds.
-
-**1. Does the centre channel work at all, outside the game?**
-
-Audio MIDI Setup → select the 5.1 device → *Configure Speakers* → 5.1 →
-click each speaker in turn.
-
-- **Centre silent, others fine** → confirmed: the fault is in the
-  macOS/HDMI/display path, entirely outside this wrapper. Investigation ends
-  here as far as this project is concerned. Likely causes: the display
-  downmixing 5.1→2.0 internally and dropping centre, or no centre output
-  assigned in the speaker configuration.
-- **All six speakers sound** → the hardware path is fine; continue to step 2.
-
-**2. Does it still happen in stereo?**
-
-Switch macOS output to a 2-channel device, relaunch, and listen for a radio
-line.
-
-- **Radio VO returns** → channel mapping in `winecoreaudio`. A Wine-side bug,
-  not a D3DMetal one.
-- **Radio VO still silent** → not channel routing. It is the effect chain;
-  continue to step 3.
-
-**3. Sample during a radio line.**
-
-```bash
-PID=$(pgrep -f HaloCampaignEvolved | head -1)
-sample "$PID" 10 -f ~/Desktop/halo-audio-sample.txt
+```
+Mac ──HDMI──▶ Samsung display ──eARC──▶ Sonos ──▶ 5.1
 ```
 
-Threads of interest: `FAudio_AudioClientThread`, `AudioMixerRenderThread`,
-`AudioMixerNullCallbackThread`, `audio_client_timer`,
-`com.apple.audio.IOThread.client`, and `winecoreaudio.so`. The hang sample in
-[EVIDENCE.md](EVIDENCE.md) captured all of these **parked normally**, so
-there is a clean baseline to diff against.
+and it does not deliver channels in the order macOS assumes. Worse, **the
+order changes between sessions.** Two separate hand-built assignments were
+each needed to get macOS's white-noise test into the right speakers:
 
-#### Status
+| Speaker | Session A | Session B | macOS default |
+|---|---:|---:|---:|
+| Left | 3 | 1 | 1 |
+| Right | 4 | 2 | 2 |
+| Centre | 6 | 4 | 3 |
+| Subwoofer | 5 | 3 | 4 |
+| Left surround | 1 | 5 | 5 |
+| Right surround | 2 | 6 | 6 |
 
-**Paused 2026-09-13** — the 5.1 rig has been packed up; resume when it is set
-back up. Nothing in the wrapper needs to change in the meantime, and no
-workaround is applied for this issue.
+Because the negotiated layout differs per eARC handshake, **no static remap
+holds** — a saved assignment simply becomes wrong in a new way.
 
-See [EVIDENCE.md](EVIDENCE.md#5-audio-radiocomms-vo-open) for the audio-stack
-configuration findings.
+**Why it looked like a game bug.** Radio comms VO is 2D non-diegetic and
+conventionally **centre-locked**, while in-person dialogue is 3D-positioned
+across L/R/surrounds. A mangled centre channel therefore silences exactly one
+category of voice and leaves everything else intact — which reads as a
+game-audio defect rather than a wiring one.
+
+| Voice type | Positioning | Effect of a broken centre |
+|---|---|---|
+| In-person dialogue | 3D, L/R/surrounds | unaffected |
+| Radio/comms VO | 2D, centre-locked | silent or mislocated |
+
+**Proof it is not the wrapper.** The fault reproduces in **Audio MIDI Setup's
+own white-noise speaker test**, with no game running. No Wine, no D3DMetal,
+no FAudio involved. It will affect any 5.1 application on the machine.
+
+**Current state: chain-level fault, not fixable in Audio MIDI Setup.**
+Remapping corrects against a moving target. Fix the handshake instead:
+disable CEC/Anynet+ on the display (the usual cause of spontaneous eARC
+re-handshakes), pin the digital output to a fixed audio format rather than
+Auto, update firmware on both display and soundbar, and replace the eARC
+HDMI cable with a certified high-speed one. Then reset Audio MIDI Setup to
+the default 1–6 so you are observing the chain rather than your own
+compensation.
+
+**If you hit this**, check the channel map before suspecting the graft:
+Audio MIDI Setup → your device → *Configure Speakers* → 5.1 → test each
+speaker and confirm the right one sounds. Note also that the game exposes
+**no speaker-configuration setting** — UE5 takes whatever channel count the
+output device reports — so there is no in-game override for a broken map.
+If chasing the drift is not worth it, sending stereo from the Mac and letting
+the soundbar upmix trades discrete channels for stability.
+
+Full reasoning in [EVIDENCE.md](EVIDENCE.md#5-audio-51-channel-mapping-external).
 
 ---
 

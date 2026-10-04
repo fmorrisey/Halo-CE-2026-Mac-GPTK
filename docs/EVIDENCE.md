@@ -207,106 +207,132 @@ D3DMetal. Current workaround is renaming the `.mp4` files out of the way
 
 ---
 
-## 5. Audio: radio/comms VO (open)
+## 5. Audio: 5.1 channel mapping (external)
 
-Captured 2026-09-13. **Incomplete** — testing paused because the 5.1 rig was
-packed up before the discriminating tests could be run. Recorded so it can be
-resumed cold.
+Opened 2026-09-13, closed as external 2026-10-03.
 
-### Symptom
+### Symptom progression
 
-5.1 output works. Music, weapons, ambience and in-world dialogue all play.
-**Radio/comms VO — Cortana, Foehammer — is silent.** Mix quality subjectively
-mediocre, which may share a root cause rather than being separate.
+1. **Initially:** 5.1 worked; music, weapons, ambience and in-person dialogue
+   all played. **Radio/comms VO (Cortana, Foehammer) was entirely silent.**
+   Mix subjectively off.
+2. **After enabling eARC and pass-through on the display:** radio VO became
+   audible — but from the **wrong speaker**. Centre-locked dialogue emerged
+   from the **left surround**.
 
-### Output device at time of observation
+Step 2 is what reframed the problem: not missing audio, *misrouted* audio.
 
-```
-SAMSUNG (HDMI)          Output Channels: 6   48000 Hz   ← default output
-MacBook Pro Speakers    Output Channels: 2
-MacBook Pro Microphone  (input)
-```
+### Measured channel maps — note that they differ
 
-### Wine audio configuration
+Two separate sessions, each requiring a *different* hand-built assignment to
+get macOS's white-noise test out of the correct physical speakers:
 
-Driver is CoreAudio, from `user.reg`:
+| Speaker | Session A | Session B | macOS default |
+|---|---:|---:|---:|
+| Left | 3 | 1 | 1 |
+| Right | 4 | 2 | 2 |
+| Centre | 6 | 4 | 3 |
+| Subwoofer | 5 | 3 | 4 |
+| Left surround | 1 | 5 | 5 |
+| Right surround | 2 | 6 | 6 |
 
-```
-[Software\\Wine\\Drivers\\winecoreaudio.drv]
-"DefaultOutput"="{0.0.0.00000000}.{F278AF1F-3FFA-4F1E-A815-751689B1198A}"
-[Software\\Wine\\Drivers\\winecoreaudio.drv\\devices\\0,BuiltInSpeakerDevice]
-[Software\\Wine\\Drivers\\winecoreaudio.drv\\devices\\1,BuiltInMicrophoneDevice]
-```
+Session A inverts to `1→Ls, 2→Rs, 3→L, 4→R, 5→LFE, 6→C` — surround pair
+first, front pair second, centre and LFE transposed. Session B is the default
+order with **only centre and LFE swapped**.
 
-`x86_64-unix/winecoreaudio.so` is present. No `xaudio2` DLL overrides were
-found in the registry.
+**These are not the same correction.** The channel order being delivered
+changed between sessions, which means the problem is not a fixed wiring
+offset that can be compensated for once. The eARC link negotiates a different
+layout per handshake, and any saved custom map becomes wrong in a new way.
+No static remap can hold.
 
-### The XAudio2 stack is half native
+Signal chain: `Mac ──HDMI──▶ Samsung display ──eARC──▶ Sonos ──▶ 5.1`, with
+macOS reporting 6 channels at 48 kHz and sending LPCM (macOS does not
+bitstream Dolby over HDMI).
 
-The prefix has **native Microsoft XAudio2 installed over Wine's builtin**,
-dated Sep 5 00:14 — consistent with a `winetricks xact` run (Winetricks.log
-is dated Sep 4 23:48). Sizes differ markedly from the Oct 27 2025 builtins —
-larger for `xaudio2`/`xapofx`, smaller for `x3daudio`:
+### Why this presented as a game-audio bug
 
-| DLL | prefix (native) | builtin (Wine) |
-|---|---:|---:|
-| `xaudio2_7.dll` | 518,488 | 290,816 |
-| `xaudio2_0.dll` | 489,480 | 286,720 |
-| `xapofx1_5.dll` | 77,656 | 69,632 |
-| `x3daudio1_7.dll` | 24,920 | 49,152 |
+Radio comms VO is 2D non-diegetic and conventionally **centre-locked**;
+in-person dialogue is 3D world-positioned across L/R/surrounds. A broken
+centre channel therefore removes exactly one category of voice while leaving
+every other sound intact — a signature that reads as selective game-audio
+failure rather than miswiring.
 
-Native `xaudio2_0`–`_7`, all `xapofx1_*`, and all `x3daudio1_*` are present.
+**This positional asymmetry was the diagnostic shortcut.** "All audio works
+except radio voices" is not a statement about volume, codecs or effects — it
+is a statement about *channel assignment*, because radio VO is the one
+category normally confined to a single speaker.
 
-**`xaudio2_8.dll` and `xaudio2_9.dll` were left builtin** (307,200 bytes,
-Sep 4 23:43 — matching the Wine tree). UE5 targets XAudio2 2.9, and
-`FAudio_AudioClientThread` appears in the hang sample, so **the game is
-running on Wine's FAudio-backed path, not the native DLLs.**
+### Proof of externality
 
-This is probably irrelevant if the cause turns out to be the centre channel.
-It becomes directly relevant if the cause is the effect chain: a half-native
-XAudio2 stack is exactly where effect creation breaks, and UE5's audio mixer
-does its own DSP in software while using XAudio2 as an output sink — so which
-layer owns the radio effect is itself a question to answer.
+The fault reproduces in **Audio MIDI Setup's own per-speaker white-noise
+test**, with no game running: no Wine, no D3DMetal, no FAudio, no UE audio
+mixer. It is therefore upstream of everything this project touches and will
+affect any 5.1 application on the machine.
 
-### Two hypotheses, not yet discriminated
+### Status: unfixable by remapping; chain-level fault
 
-**A — centre channel (leading).** Radio comms VO is non-diegetic and in 5.1
-is conventionally hard-routed to centre. Everything else occupies
-L/R/surrounds and is unaffected. Explains both the missing VO and the
-off-sounding mix with one cause. **If true, this is not a graft defect** —
-it is a macOS/HDMI/display routing problem that would reproduce on any 5.1
-title.
+The manual assignment works only until the audio endpoint re-enumerates, at
+which point a *different* layout is negotiated and the saved map is wrong
+again. macOS stores a custom speaker layout per device configuration and
+re-applies it against whatever order the chain now presents.
 
-**B — DSP/effect chain.** Radio voice effects are band-pass plus distortion.
-A failing effect chain outputs silence rather than dry audio, which would
-also match "only these lines are missing".
+Likely triggers for re-handshake: CEC/Anynet+ activity, display input switch,
+sleep/wake, sample-rate renegotiation, and display resolution changes — the
+last of which a fullscreen game launch can itself cause.
 
-### How to discriminate
+Remedies, at chain level rather than in Audio MIDI Setup:
 
-The Audio MIDI Setup per-speaker test (Configure Speakers → 5.1 → click each
-speaker) settles A without launching the game: a silent **Centre** with the
-other five sounding confirms the fault is outside the wrapper entirely. If
-all six sound, switching to a 2-channel device and relaunching separates
-channel mapping (VO returns) from DSP (VO still missing). Full protocol in
-[README.md](README.md).
+1. Disable CEC / Anynet+ on the display — the most common source of
+   spontaneous eARC re-handshakes.
+2. Pin the display's digital output to a fixed audio format instead of Auto.
+3. Update firmware on both display and soundbar; eARC channel-layout bugs are
+   common and frequently patched.
+4. Replace the display→soundbar HDMI cable with a certified high-speed one; a
+   marginal cable produces a link that works but renegotiates erratically.
+5. Reset Audio MIDI Setup to the default 1–6 afterwards, so the chain's
+   behaviour is being observed rather than your own compensation.
 
-### Baseline for a future sample
+The robust alternative, trading discrete channels for stability: output
+**stereo** from the Mac and let the soundbar upmix. Nothing left to scramble.
 
-The hang sample captured the audio threads **parked normally**, giving a
-clean comparison point:
+### Hypotheses discriminated
 
-```
-FAudio_AudioClientThread        blocked (wine syscall)
-AudioMixerRenderThread(1)       blocked
-AudioMixerNullCallbackThread    blocked
-audio_client_timer              NtDelayExecution (winecoreaudio.so)
-com.apple.audio.IOThread.client idle
-```
+Two were live before the evidence arrived:
 
-`AudioMixerNullCallbackThread` existing at all is worth noting: it indicates
-UE had a **null audio device** in play at some point. If audio is ever
-missing wholesale rather than selectively, that thread being *active* is the
-first thing to check — it would suggest the mixer never bound to CoreAudio.
+- **Centre-channel routing** — confirmed, and broader than first framed: the
+  entire channel order is wrong, not merely centre.
+- **DSP/effect-chain failure in the radio filter** — eliminated. A failing
+  effect chain would silence radio VO regardless of speaker layout, and would
+  not relocate the voice to a different speaker when the AV chain changed.
+
+### Configuration recorded along the way
+
+Retained because it would matter if an audio fault ever *is* traced to the
+wrapper:
+
+- Game volume buses all at `1.000000` — `VolumeMaster`,
+  `VolumeMusicGameplay`, `VolumeSFXAmbient`, `VolumeSFXGameplay`,
+  `VolumeVOChatter`, `VolumeVODialog`, `VolumeVoiceChat`. Never a muted
+  slider.
+- **No speaker-configuration setting exists in the game.** UE5 takes whatever
+  channel count the output device reports, so there is no in-game override
+  for a broken channel map. Config path:
+  `.../Meteorite/Saved/Config/<SteamID>/HaloGlobalGameUserSettings.ini`.
+- Wine audio driver is CoreAudio
+  (`[Software\\Wine\\Drivers\\winecoreaudio.drv]`), with
+  `x86_64-unix/winecoreaudio.so` present and no `xaudio2` overrides in the
+  registry.
+- The prefix carries **native Microsoft XAudio2 over Wine's builtin** from a
+  `winetricks xact` run: native `xaudio2_0`–`_7`, all `xapofx1_*`, all
+  `x3daudio1_*` (`xaudio2_7.dll` 518,488 bytes vs the 290,816-byte builtin).
+  `xaudio2_8/9` were left builtin; UE5 targets 2.9 and
+  `FAudio_AudioClientThread` appears in the hang sample, so the game runs
+  Wine's FAudio path, not the native DLLs.
+- Hang-sample audio threads were all parked normally, giving a clean baseline
+  for any future comparison. `AudioMixerNullCallbackThread` existing
+  indicates UE had a null audio device in play at some point; if audio ever
+  goes missing *wholesale*, that thread being active is the first check.
 
 ---
 
