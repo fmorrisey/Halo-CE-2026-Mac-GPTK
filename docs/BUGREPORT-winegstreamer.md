@@ -35,6 +35,37 @@ reporter (D3DMetal replaced). **That modification is not implicated**: the
 fault reproduces entirely within the media pipeline, is visible in GStreamer's
 own debug log, and involves no graphics code. Noted for completeness.
 
+## Upstream status (checked 2026-10-03)
+
+**Still present in current Wine master.** Verified by reading
+`dlls/winegstreamer/wg_transform.c` on master:
+
+- The output path contains **no `GST_MESSAGE_ERROR` / bus error checking** of
+  any kind.
+- There is **no mechanism to distinguish a failed decoder from one awaiting
+  more input**.
+- When no output sample is available, `get_transform_output()` drains the
+  input queue and the caller returns `MF_E_TRANSFORM_NEED_MORE_INPUT`.
+
+So the call does not block — it reports "need more input" indefinitely. The
+Media Foundation client therefore keeps feeding and polling a decoder that has
+permanently stopped producing, which is why the hang shows as a quiet,
+low-CPU wait with nothing spinning rather than a blocked thread.
+
+Most recent commit to the file at time of writing is 2026-09-01 (a
+`-Wunused-but-set-global` warning fix). Nearby work on the same path
+("Allow application to drain queue", 2024-09-06; "Push flush event when
+flushing", 2025-04-16) does not add error propagation.
+
+## Suggested fix
+
+Monitor the pipeline bus in the output path. On `GST_MESSAGE_ERROR`, latch
+the error on the transform and return a distinct failure from
+`wg_transform_read_data` instead of `MF_E_TRANSFORM_NEED_MORE_INPUT`, so the
+client can surface the failure, skip the media, or fall back. Returning
+"need more input" for a permanently dead decoder is indistinguishable from
+normal operation and gives the application no way to recover.
+
 ## Expected behaviour
 
 When a decoder fails on an input packet, the error should surface — either as
