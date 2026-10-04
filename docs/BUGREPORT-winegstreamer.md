@@ -66,6 +66,23 @@ client can surface the failure, skip the media, or fall back. Returning
 "need more input" for a permanently dead decoder is indistinguishable from
 normal operation and gives the application no way to recover.
 
+## Proposed patch
+
+A draft patch is in `wg_transform-error-propagation.patch`, with rationale and
+known gaps in `PATCH-NOTES.md`. It is **untested** — written from a reading of
+master, not built or run.
+
+In short: `get_transform_output()` already captures the `GstFlowReturn` from
+`gst_pad_push()` and discards it with only a warning. The patch latches fatal
+returns (`GST_FLOW_ERROR`, `GST_FLOW_NOT_NEGOTIATED`, `GST_FLOW_NOT_SUPPORTED`,
+`GST_FLOW_NOT_LINKED`) on the transform and reports them from
+`wg_transform_read_data()` instead of `MF_E_TRANSFORM_NEED_MORE_INPUT`.
+Transient returns (`GST_FLOW_FLUSHING`, `GST_FLOW_EOS`) are not latched.
+
+Watching the bus is the more obvious approach but is more invasive here:
+`transform->container` is a `gst_bin_new()` rather than a pipeline, and an
+unparented bin has no bus of its own.
+
 ## Expected behaviour
 
 When a decoder fails on an input packet, the error should surface — either as

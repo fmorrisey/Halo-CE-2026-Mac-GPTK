@@ -1,0 +1,101 @@
+From: <your name and address>
+Subject: [PATCH] winegstreamer: Propagate fatal flow errors from wg_transform.
+
+get_transform_output() pushes queued input buffers downstream with
+gst_pad_push() and logs a warning if the push fails, but otherwise
+ignores the GstFlowReturn and keeps looping. When a decoder rejects its
+input and returns GST_FLOW_ERROR, the transform is permanently unable to
+produce output, yet wg_transform_read_data() still reports
+MF_E_TRANSFORM_NEED_MORE_INPUT.
+
+A Media Foundation client cannot distinguish that from normal operation,
+so it feeds and polls a dead decoder indefinitely and the application
+hangs with no error surfaced anywhere.
+
+Observed with an Unreal Engine 5.5 title using the Electra player: a
+H.264 clip that avdec_h264 rejects ("Invalid input packet") leaves the
+application in a permanent low-CPU wait with every thread parked. A
+different clip with the same codec decodes correctly, so the condition is
+content-specific.
+
+Latch fatal flow returns on the transform and report them to the caller
+so the client can surface the failure or skip the media. Transient
+returns (GST_FLOW_FLUSHING, GST_FLOW_EOS) are deliberately not latched.
+
+Signed-off-by: <your name and address>
+---
+ dlls/winegstreamer/wg_transform.c | 42 +++++++++++++++++++++++++++++---
+ 1 file changed, 39 insertions(+), 3 deletions(-)
+
+diff --git a/dlls/winegstreamer/wg_transform.c b/dlls/winegstreamer/wg_transform.c
+--- a/dlls/winegstreamer/wg_transform.c
++++ b/dlls/winegstreamer/wg_transform.c
+@@ struct wg_transform
+     bool draining;
+     INT64 ts_offset;
++
++    /* Set when the processing chain has returned a fatal GstFlowReturn.
++     * The transform cannot produce further output once this is set, so
++     * callers must be told rather than asked for more input forever. */
++    GstFlowReturn fatal_flow_ret;
+ };
+ 
++/* Distinguish flow returns that permanently break the chain from those
++ * that are a normal part of operation. GST_FLOW_FLUSHING and GST_FLOW_EOS
++ * are expected during seeks, drains and end of stream. */
++static bool flow_return_is_fatal(GstFlowReturn ret)
++{
++    switch (ret)
++    {
++    case GST_FLOW_NOT_LINKED:
++    case GST_FLOW_NOT_NEGOTIATED:
++    case GST_FLOW_ERROR:
++    case GST_FLOW_NOT_SUPPORTED:
++        return true;
++    default:
++        return false;
++    }
++}
++
+ static bool get_transform_output(struct wg_transform *transform, struct wg_sample *sample)
+ {
+     GstFlowReturn ret;
+@@ static bool get_transform_output(struct wg_transform *transform, struct wg_sampl
+         if (!(input_buffer = gst_atomic_queue_pop(transform->input_queue)))
+             break;
+ 
+-        if ((ret = gst_pad_push(transform->my_src, input_buffer)))
+-            GST_WARNING("Failed to push transform input, error %d", ret);
++        if ((ret = gst_pad_push(transform->my_src, input_buffer)))
++        {
++            GST_WARNING("Failed to push transform input, error %d", ret);
++            if (flow_return_is_fatal(ret))
++            {
++                GST_ERROR("Fatal flow error %d, transform can no longer produce output", ret);
++                transform->fatal_flow_ret = ret;
++                break;
++            }
++        }
+ 
+         complete_drain(transform);
+     }
+@@ NTSTATUS wg_transform_read_data(void *args)
+     if (!transform->output_sample && !get_transform_output(transform, sample))
+     {
+         sample->size = 0;
+-        params->result = MF_E_TRANSFORM_NEED_MORE_INPUT;
+-        GST_INFO("Cannot read %u bytes, no output available", sample->max_size);
++        if (transform->fatal_flow_ret)
++        {
++            params->result = MF_E_INVALID_STREAM_DATA;
++            GST_ERROR("Transform failed with flow error %d, no output will be produced",
++                    transform->fatal_flow_ret);
++        }
++        else
++        {
++            params->result = MF_E_TRANSFORM_NEED_MORE_INPUT;
++            GST_INFO("Cannot read %u bytes, no output available", sample->max_size);
++        }
+         wg_allocator_release_sample(transform->allocator, sample, false);
+         return STATUS_SUCCESS;
+     }
