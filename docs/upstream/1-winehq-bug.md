@@ -28,4 +28,10 @@ and discards the frame.
 - MacGameVideoFix's in-process shim substitutes an `IMF2DBuffer2` over the flat buffer: https://github.com/MathiasKowoll/MacGameVideoFix/issues/6
 Both make the video appear. Fixing it in winegstreamer makes every downstream (CrossOver, GPTK, Gcenx, Porting Kit, Kegworks, Whisky) get it for free.
 
-**Patch:** a Wine-10.0 port of the D3D-awareness half is attached (`patches/winegstreamer-ue5-electra-2dbuffer-macos.patch`). The 2D-buffer half (MFCreate2DMediaBuffer substitution in ProcessOutput) still needs to be written against current Wine and build-tested — I couldn't build a working winegstreamer.dll locally (a self-built Wine-10.0 dll faults in ntdll under both mingw GCC 16.2.0 and llvm-mingw clang 23; only the distro's GCC-15.2.0 build loads). Happy to test a maintainer build.
+**Candidate patch attached:** `patches/winegstreamer-ue5-electra-2dbuffer-macos.patch` (Wine 10.0, +35/-6 in `video_decoder.c`) — advertises `MF_SA_D3D*_AWARE=FALSE` on macOS, refuses the D3D manager, provides output samples, and swaps `MFCreateMemoryBuffer`→`MFCreate2DMediaBuffer` on the PROVIDES_SAMPLES path so the buffer implements `IMF2DBuffer2`.
+
+**Two caveats, stated honestly (this is a candidate, not a merge-ready patch):**
+1. **Host-OS detection.** `video_decoder.c` is the PE module (cross-compiled for Windows), so `__APPLE__` is not defined there — `is_macos()` must be a *runtime* check (e.g. a winegstreamer unix-call; the unix side links the host libc). The patch uses a clearly-marked placeholder and encodes only the intended behaviour.
+2. **Not build-tested in a Wine tree.** I could not build a working winegstreamer.dll against this wrapper (a self-built Wine-10.0 dll faults in ntdll under both mingw GCC 16.2.0 and llvm-mingw clang 23; only the distro's GCC-15.2.0 build loads). The *behaviour* is validated via the equivalent in-process shim on the real game, but the patch itself needs compiling/testing in a proper Wine dev environment.
+
+The underlying analysis and the required behaviour changes are solid; I'd value maintainer guidance on the host-detection mechanism and am happy to iterate.

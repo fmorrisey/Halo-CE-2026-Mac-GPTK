@@ -1,57 +1,65 @@
 diff --git a/dlls/winegstreamer/video_decoder.c b/dlls/winegstreamer/video_decoder.c
-index 83fb713..c392636 100644
+index 83fb713..7c56c1a 100644
 --- a/dlls/winegstreamer/video_decoder.c
 +++ b/dlls/winegstreamer/video_decoder.c
 @@ -36,6 +36,19 @@
  WINE_DEFAULT_DEBUG_CHANNEL(mfplat);
  WINE_DECLARE_DEBUG_CHANNEL(winediag);
  
-+/* winevideo graft (Halo CE 2026 / Porting Kit): this winegstreamer only ever
-+ * runs on macOS under Apple's D3DMetal, where no backend can create NV12/P010
-+ * D3D11 video textures. The MF H.264 decoder must therefore advertise no D3D
-+ * awareness, refuse any D3D device manager, and always provide its own output
-+ * samples (whose allocator buffers implement IMF2DBuffer, which UE Electra
-+ * requires on every video frame). Ports winevideo patches 0005 + 0007; see
-+ * https://github.com/Jfishin/winevideo . is_macos() is TRUE here by
-+ * construction — a host-detecting form belongs in an upstream submission. */
++/* macOS/D3DMetal cannot create NV12/planar D3D11 textures, so direct-IMFTransform
++ * consumers (UE ElectraPlayer) must get system-memory, IMF2DBuffer2-capable
++ * output and the decoder must advertise no D3D awareness.
++ *
++ * NOTE for review: video_decoder.c is the PE module, cross-compiled for Windows,
++ * so __APPLE__ is NOT defined here -- host-OS detection must be a RUNTIME check
++ * (e.g. a winegstreamer unix-call, as the unix side links against the host libc).
++ * This stub only encodes the intent; a real submission must wire up that call. */
 +static inline BOOL is_macos(void)
 +{
-+    return TRUE;
++    return TRUE; /* PLACEHOLDER -- replace with a runtime host-OS check */
 +}
 +
  struct subtype_info
  {
      const GUID *subtype;
-@@ -780,11 +793,21 @@ static HRESULT WINAPI transform_ProcessMessage(IMFTransform *iface, MFT_MESSAGE_
+@@ -780,11 +793,13 @@ static HRESULT WINAPI transform_ProcessMessage(IMFTransform *iface, MFT_MESSAGE_
      switch (message)
      {
      case MFT_MESSAGE_SET_D3D_MANAGER:
-+        /* winevideo 0005: no macOS backend can make NV12/D3D11 video textures,
-+         * so D3D-bound output starves direct-IMFTransform consumers (UE
-+         * Electra). Refuse the manager like a non-D3D-aware MFT would; callers
-+         * then use their software path and upload CPU frames themselves. */
 +        if (is_macos() && param)
-+        {
-+            WARN("Refusing D3D device manager on macOS; forcing system-memory output.\n");
-+            return E_NOTIMPL;
-+        }
++            return E_NOTIMPL;   /* no NV12 D3D11 textures on macOS; force system memory */
          if (FAILED(hr = IMFVideoSampleAllocatorEx_SetDirectXManager(decoder->allocator, (IUnknown *)param)))
              return hr;
  
          uninit_allocator(decoder);
 -        if (param)
-+        /* winevideo 0007: on macOS always provide our own output samples. */
 +        if (param || is_macos())
              decoder->output_info.dwFlags |= MFT_OUTPUT_STREAM_PROVIDES_SAMPLES;
          else
              decoder->output_info.dwFlags &= ~MFT_OUTPUT_STREAM_PROVIDES_SAMPLES;
-@@ -1557,13 +1580,23 @@ static HRESULT video_decoder_create_with_types(const GUID *const *input_types, U
-         goto failed;
+@@ -918,8 +933,17 @@ static HRESULT WINAPI transform_ProcessOutput(IMFTransform *iface, DWORD flags,
+                 decoder->temp_buffer = NULL;
+             }
+         }
+-        if (!decoder->temp_buffer && FAILED(hr = MFCreateMemoryBuffer(sample_size, &decoder->temp_buffer)))
+-            return hr;
++        if (!decoder->temp_buffer)
++        {
++            if (is_macos())
++                /* IMF2DBuffer2-capable buffer: fourcc is the video subtype's Data1. */
++                hr = MFCreate2DMediaBuffer(frame_size >> 32, (UINT32)frame_size,
++                        subtype.Data1, FALSE, &decoder->temp_buffer);
++            else
++                hr = MFCreateMemoryBuffer(sample_size, &decoder->temp_buffer);
++            if (FAILED(hr))
++                return hr;
++        }
+         if (FAILED(hr = MFCreateSample(&sample)))
+             return hr;
+         if (FAILED(hr = IMFSample_AddBuffer(sample, decoder->temp_buffer)))
+@@ -1558,12 +1582,17 @@ static HRESULT video_decoder_create_with_types(const GUID *const *input_types, U
      if (FAILED(hr = MFCreateAttributes(&decoder->attributes, 16)))
          goto failed;
-+    /* winevideo 0005: on macOS advertise no D3D awareness — D3D-bound output
-+     * would need NV12 D3D11 textures no backend can create. Callers (UE
-+     * Electra, SourceReader) then take their software/system-memory paths. */
      if (FAILED(hr = IMFAttributes_SetUINT32(decoder->attributes, &MF_LOW_LATENCY, FALSE))
 -            || FAILED(hr = IMFAttributes_SetUINT32(decoder->attributes, &MF_SA_D3D_AWARE, TRUE))
 -            || FAILED(hr = IMFAttributes_SetUINT32(decoder->attributes, &MF_SA_D3D11_AWARE, TRUE))
@@ -61,23 +69,19 @@ index 83fb713..c392636 100644
                      &MFT_DECODER_EXPOSE_OUTPUT_TYPES_IN_NATIVE_ORDER, FALSE)))
          goto failed;
  
-+    /* winevideo 0007: on macOS always provide output samples ourselves — the
-+     * sample allocator's system-memory buffers implement IMF2DBuffer, which
-+     * consumers like UE Electra require on video frames (a caller-provided
-+     * plain memory buffer does not, so they reject every frame). */
++    /* On macOS always provide our own output samples: our allocator/2D buffer
++     * implements IMF2DBuffer2, which UE Electra requires on video frames. */
 +    if (is_macos())
 +        decoder->output_info.dwFlags |= MFT_OUTPUT_STREAM_PROVIDES_SAMPLES;
 +
      if (FAILED(hr = MFCreateAttributes(&decoder->output_attributes, 0)))
          goto failed;
      if (FAILED(hr = wg_sample_queue_create(&decoder->wg_sample_queue)))
-@@ -1637,7 +1670,9 @@ HRESULT h264_decoder_create(REFIID riid, void **out)
+@@ -1637,7 +1666,7 @@ HRESULT h264_decoder_create(REFIID riid, void **out)
      decoder->input_info.dwFlags = MFT_INPUT_STREAM_WHOLE_SAMPLES | MFT_INPUT_STREAM_SINGLE_SAMPLE_PER_BUFFER
              | MFT_INPUT_STREAM_FIXED_SAMPLE_SIZE;
      decoder->input_info.cbSize = 0x1000;
 -    decoder->output_info.dwFlags = MFT_OUTPUT_STREAM_WHOLE_SAMPLES | MFT_OUTPUT_STREAM_SINGLE_SAMPLE_PER_BUFFER
-+    /* winevideo 0007: |= not = so the macOS PROVIDES_SAMPLES flag set in
-+     * video_decoder_create_with_types survives. */
 +    decoder->output_info.dwFlags |= MFT_OUTPUT_STREAM_WHOLE_SAMPLES | MFT_OUTPUT_STREAM_SINGLE_SAMPLE_PER_BUFFER
              | MFT_OUTPUT_STREAM_FIXED_SAMPLE_SIZE;
      decoder->output_info.cbSize = 1920 * 1088 * 2;
