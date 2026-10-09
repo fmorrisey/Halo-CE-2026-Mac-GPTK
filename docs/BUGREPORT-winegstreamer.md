@@ -171,6 +171,44 @@ SPS/PPS would explain `Invalid input packet`, and may be the underlying cause
 of the rejected packet. The deadlock, however, is independent: whatever makes
 the packet invalid, a decoder error should not hang the application.
 
+## The failure is decoder-independent (tested 2026-10-03)
+
+The clip was retried with a completely different H.264 implementation, by
+promoting OpenH264 above libav:
+
+```
+GST_PLUGIN_FEATURE_RANK=vtdec_hw:NONE,vtdec:NONE,openh264dec:PRIMARY,avdec_h264:MARGINAL
+```
+
+**The hang is identical.** Process state while hung, compared against the
+libav run:
+
+| | libav run | OpenH264 run |
+|---|---|---|
+| CPU | 79.2% | 78.7% |
+| Threads running | 1.9% | 1.2% |
+| Decoder library frames | 0 | 0 |
+| Only thread spinning | `game_MAIN_THREAD` (GUI poll) | `game_MAIN_THREAD` (GUI poll) |
+
+Two unrelated H.264 decoders failing the same way on the same input makes
+decoder strictness an unlikely explanation and points at the data being fed
+to them. That raises the "Secondary observation" below from a footnote to the
+probable root cause: if the `avc` to `byte-stream` conversion drops or
+misplaces SPS/PPS, no decoder can decode the result.
+
+This reads as two defects stacked:
+
+1. **Malformed input.** The caps conversion loses codec headers, so decoding
+   cannot succeed regardless of which decoder is selected.
+2. **Swallowed error.** `wg_transform` reports
+   `MF_E_TRANSFORM_NEED_MORE_INPUT` indefinitely instead of surfacing the
+   failure, turning a recoverable decode error into a permanent hang.
+
+Fixing (2) alone would convert the hang into a reportable error the
+application could skip past. Fixing (1) would let the video actually play.
+The attached patch addresses (2), which is the smaller and better-isolated
+of the two.
+
 ## Workaround
 
 None at the application level. The media files must be renamed so the engine
